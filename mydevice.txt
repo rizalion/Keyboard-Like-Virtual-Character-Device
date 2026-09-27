@@ -1,0 +1,94 @@
+#include <linux/module.h>     // Core header for modules
+#include <linux/kernel.h>     // Kernel logging
+#include <linux/fs.h>         // File operations
+#include <linux/uaccess.h>    // copy_to_user, copy_from_user
+
+#define DEVICE_NAME "mydevice"
+#define BUFFER_SIZE 1024
+
+static int majorNumber;
+static char kernel_buffer[BUFFER_SIZE];
+static int buffer_size = 0;
+
+/* Function prototypes */
+static int dev_open(struct inode *, struct file *);
+static int dev_release(struct inode *, struct file *);
+static ssize_t dev_read(struct file *, char *, size_t, loff_t *);
+static ssize_t dev_write(struct file *, const char *, size_t, loff_t *);
+
+/* File operations structure */
+static struct file_operations fops = {
+    .open = dev_open,
+    .read = dev_read,
+    .write = dev_write,
+    .release = dev_release,
+};
+
+/* Called when module is loaded */
+static int __init mydevice_init(void) {
+    majorNumber = register_chrdev(0, DEVICE_NAME, &fops);
+    if (majorNumber < 0) {
+        printk(KERN_ALERT "Failed to register device\n");
+        return majorNumber;
+    }
+
+    printk(KERN_INFO "MyDevice loaded with Major Number %d\n", majorNumber);
+    printk(KERN_INFO "Create device using: mknod /dev/mydevice c %d 0\n", majorNumber);
+    return 0;
+}
+
+/* Called when module is removed */
+static void __exit mydevice_exit(void) {
+    unregister_chrdev(majorNumber, DEVICE_NAME);
+    printk(KERN_INFO "MyDevice unloaded\n");
+}
+
+/* Device open */
+static int dev_open(struct inode *inodep, struct file *filep) {
+    printk(KERN_INFO "MyDevice opened\n");
+    return 0;
+}
+
+/* Device read */
+static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *offset) {
+    int error_count;
+
+    if (*offset >= buffer_size)
+        return 0;
+
+    error_count = copy_to_user(buffer, kernel_buffer, buffer_size);
+
+    if (error_count == 0) {
+        *offset += buffer_size;
+        printk(KERN_INFO "Data sent to user\n");
+        return buffer_size;
+    } else {
+        return -EFAULT;
+    }
+}
+
+/* Device write */
+static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset) {
+    if (len > BUFFER_SIZE)
+        len = BUFFER_SIZE;
+
+    copy_from_user(kernel_buffer, buffer, len);
+    buffer_size = len;
+
+    printk(KERN_INFO "Data received from user\n");
+    return len;
+}
+
+/* Device close */
+static int dev_release(struct inode *inodep, struct file *filep) {
+    printk(KERN_INFO "MyDevice closed\n");
+    return 0;
+}
+
+module_init(mydevice_init);
+module_exit(mydevice_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Your Name");
+MODULE_DESCRIPTION("Simple Virtual Keyboard-like Character Device Driver");
+MODULE_VERSION("1.0");
